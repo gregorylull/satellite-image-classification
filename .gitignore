@@ -111,10 +111,7 @@ node_modules
 
 # glull project
 data/
-src/cached_docs/
-!data/*.py
+!data/spacenet/*.py
 
 src/figures/*.png
 *.zip
-
-

@@ -1,0 +1,11 @@
+{
+    "files.watcherExclude": {
+        "**/data/**": true
+    },
+    "search.exclude": {
+        "**/data": true
+    },
+    "python.pythonPath": "/Users/greg/anaconda3/envs/solaris/bin/python",
+    "python.envFile": "${workspaceFolder}/.env",
+    "python.jediEnabled": false
+}
