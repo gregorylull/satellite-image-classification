@@ -110,8 +110,12 @@ venv.bak/
 node_modules
 
 # glull project
-data/
+data/**
+!data/spacenet
 !data/spacenet/*.py
+
+!data/salt
+!data/salt/*.py
 
 src/figures/*.png
 *.zip
