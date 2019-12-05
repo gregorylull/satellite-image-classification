@@ -15,6 +15,9 @@ e.g. if there's a 99:1 sunshine:rain, then you inherently already feel certain t
 #### Sources
 1. A short introduction to Entropy, Cross-Entropy and KL-Divergence 2018 [youtube](https://www.youtube.com/watch?v=ErfnhcEV1O8)
 
+
+
+
 ## Image detection and segmentation
 
 Computationally more efficient to downsample and have deep layers, and then upsample (unpool) at the end.
@@ -86,3 +89,10 @@ In network upsampling (unpooling), the following three methods are all "fixed", 
 #### Sources
 1. Stanford - Lecture 11 Detection and Segmentation [youtube](https://www.youtube.com/watch?v=nDPWywWRIRo)
 
+
+## Keras
+### Conv2d Filters vs kernel size
+
+
+
+- diff between the two [stackoverflow] (https://stackoverflow.com/questions/51180234/keras-conv2d-filters-vs-kernel-size)
