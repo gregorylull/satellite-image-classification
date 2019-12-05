@@ -117,5 +117,12 @@ data/**
 !data/salt
 !data/salt/*.py
 
+assets/**
+!assets/spacenet
+!assets/spacenet/*learning_curve*.png
+
+!assets/salt
+!assets/salt/*learning_curve*.png
+
 src/figures/*.png
 *.zip
