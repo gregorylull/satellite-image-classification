@@ -119,7 +119,7 @@ data/**
 
 assets/**
 !assets/spacenet
-!assets/spacenet/*.png
+!assets/spacenet/*learning_curve*.png
 
 !assets/salt
 !assets/salt/*learning_curve*.png

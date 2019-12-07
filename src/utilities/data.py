@@ -71,7 +71,7 @@ def get_data(
     ids = total_ids[:train_index]
 
     print(
-        f'\nExamining images {len(ids) / len(total_ids)} ({train_percentage}%)')
+        f'\nExamining images {len(ids)} / {len(total_ids)} ({train_percentage}%)')
 
     X = np.zeros((len(ids), image_dimension, image_dimension,
                   image_channels), dtype=dtype_float)
@@ -92,8 +92,8 @@ def get_data(
         x_img = tifffile.imread(image_path)
 
         # x_img = img_to_array(img)
-        # x_img = resize(x_img, (image_dimension, image_dimension, image_channels),
-        #                mode='constant', preserve_range=True)
+        x_img = resize(x_img, (image_dimension, image_dimension, image_channels),
+                       mode='constant', preserve_range=True)
 
         # Load masks
         if train:
@@ -104,6 +104,7 @@ def get_data(
                             mode='constant', preserve_range=True)
 
         # Save images
+        # TODO there may be an issue right here
         X[n, ...] = x_img.squeeze() / RGB_bits
         if train:
             y[n] = y_mask / mask_bits

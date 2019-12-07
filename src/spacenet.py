@@ -48,23 +48,25 @@ dtype_float = np.float32
 
 USE_CACHED_MODEL = False
 
-train_percentage = 0.1  # 1
+train_percentage = 0.02  # 1
 
-CHECK_IMAGES = 5
+CHECK_IMAGES = 10
 
 SAVE_FIG = True
 
 # Set some parameters
-image_dimension = 650
+# image_dimension = 650 # original shape
+image_dimension = 512 # divisible down the layers and easy to concatenate
 image_channels = 3
 mask_channels = 1
 
 # model
 border = 5
-batch_size = 64  # 32
-dropout = 0.1
-epochs = 80
-patience = 20
+batch_size = 16  # 32
+dropout = 0.1 # 0.1
+n_filters = 8 # 16
+epochs = 20 # 100
+patience = 5 # 20
 
 # path_train = 'data/salt/gltrain/
 path_train = 'data/salt/train/'
@@ -72,7 +74,8 @@ assets = 'assets/spacenet/'
 
 # Get and resize train images and masks
 
-CACHED_MODEL_FILENAME = f'models/spacenet_train{train_percentage}_batch{batch_size}_dropout{dropout}.h5'
+parameters = f'_train{train_percentage}_batch{batch_size}_dropout{dropout}_n_filters{n_filters}' 
+CACHED_MODEL_FILENAME = f'models/spacenet{parameters}.h5'
 
 
 def savefig(fig, name, save=SAVE_FIG):
@@ -110,7 +113,10 @@ savefig(fig, fig_name)
 
 
 def conv2d_block(input_tensor, n_filters, kernel_size=3, batchnorm=True):
-    """Function to add 2 convolutional layers with the parameters passed to it"""
+
+    """
+    Function to add 2 convolutional layers with the parameters passed to it
+    """
     # first layer
     x = Conv2D(filters=n_filters, kernel_size=(kernel_size, kernel_size),
                kernel_initializer='he_normal', padding='same')(input_tensor)
@@ -129,6 +135,15 @@ def conv2d_block(input_tensor, n_filters, kernel_size=3, batchnorm=True):
 
 
 def get_unet(input_img, n_filters=16, dropout=dropout, batchnorm=True):
+
+    """
+    create a unet model
+
+    # (glull) keras didn't have a built-in U-Net model so the overall code for get_unet is from
+    # an online source: https://www.depends-on-the-definition.com/unet-keras-segmenting-images/,
+    # the only things i tweaked were the variables, dimensions, and filters.
+
+    """
     # Contracting Path
     c1 = conv2d_block(input_img, n_filters * 1,
                       kernel_size=3, batchnorm=batchnorm)
@@ -182,7 +197,7 @@ def get_unet(input_img, n_filters=16, dropout=dropout, batchnorm=True):
 
 input_img = Input((image_dimension, image_dimension,
                    image_channels), name='img')
-model = get_unet(input_img, n_filters=16, dropout=0.05, batchnorm=True)
+model = get_unet(input_img, n_filters=n_filters, dropout=dropout, batchnorm=True)
 
 model.compile(optimizer=Adam(), loss="binary_crossentropy",
               metrics=["accuracy"])
@@ -197,13 +212,13 @@ callbacks = [
                     save_best_only=True, save_weights_only=True)
 ]
 
-if USE_CACHED_MODEL:
+if USE_CACHED_MODEL and os.path.exists(CACHED_MODEL_FILENAME):
     model.load_weights(CACHED_MODEL_FILENAME)
     model.evaluate(X_valid, y_valid, verbose=1)
 
 else:
 
-    epochs = epochs,
+    epochs = epochs
     results = model.fit(
         X_train,
         y_train,
@@ -214,7 +229,7 @@ else:
     )
 
     plt.figure(figsize=(12, 12))
-    plt.title("Learning curve")
+    plt.title(f"Learning curve {' '.join(parameters.split('_'))}")
     plt.plot(results.history["loss"], label="loss")
     plt.plot(results.history["val_loss"], label="val_loss")
     plt.plot(np.argmin(results.history["val_loss"]), np.min(
@@ -223,7 +238,7 @@ else:
     plt.ylabel("log_loss")
     plt.legend()
 
-    name = os.path.join(assets, 'tgs_learning_curve.png')
+    name = os.path.join(assets, f'tgs_learning_curve{parameters}.png')
     savefig(plt, name)
 
 # Predict on train, val and test
@@ -269,11 +284,11 @@ def plot_sample(X, y, preds, binary_preds, ix=None):
 for i in range(CHECK_IMAGES):
     fig_train = plot_sample(
         X_train, y_train, preds_train, preds_train_t, ix=i)
-    name = f'{assets}spacenet_train_predicted_fig_{i}_train{train_percentage}_dropout{dropout}.png'
+    name = f'{assets}spacenet_train_predicted_fig_{i}{parameters}.png'
     savefig(fig_train, name)
 
 # Check if validation data looks all right
 for i in range(CHECK_IMAGES):
     fig_val = plot_sample(X_valid, y_valid, preds_val, preds_val_t, ix=i)
-    name = f'{assets}spacenet_val_predicted_fig_{i}_train{train_percentage}_dropout{dropout}.png'
+    name = f'{assets}spacenet_val_predicted_fig_{i}{parameters}.png'
     savefig(fig_val, name)

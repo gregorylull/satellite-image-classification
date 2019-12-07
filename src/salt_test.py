@@ -56,7 +56,7 @@ dtype_float = np.float32
 
 CAST_TO_FLOAT16 = False
 
-USE_CACHED_MODEL = False
+USE_CACHED_MODEL = True
 
 TRAIN_PERCENTAGE = 1  # 1
 
@@ -153,7 +153,7 @@ fig_name = os.path.join(assets, f'{id_without_ext}_mask_comparison.png')
 print(f'saving figure {fig_name}')
 savefig(fig, fig_name)
 
-
+# TODO this code isn't working as expected, the 2nd layer is overwriting the first layer
 def conv2d_block(input_tensor, n_filters, kernel_size=3, batchnorm=True):
     """Function to add 2 convolutional layers with the parameters passed to it"""
     # first layer
