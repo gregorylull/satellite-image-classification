@@ -5,28 +5,20 @@ import random
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle
 
-from tqdm import tqdm_notebook, tnrange
-from itertools import chain
-from skimage.io import imread, imshow, concatenate_images
-from skimage.transform import resize
-from skimage.morphology import label
 from sklearn.model_selection import train_test_split
 
 import tensorflow as tf
 
-from keras.models import Model, load_model
-from keras.layers import Input, BatchNormalization, Activation, Dense, Dropout
-from keras.layers.core import Lambda, RepeatVector, Reshape
-from keras.layers.convolutional import Conv2D, Conv2DTranspose
-from keras.layers.pooling import MaxPooling2D, GlobalMaxPool2D
-from keras.layers.merge import concatenate, add
+from keras.models import load_model
+from keras.layers import Input
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.optimizers import Adam
-from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 
 # glull files
 from src.utilities import data as gldata
+from src.utilities import unet as glunet
 
 # https://stackoverflow.com/questions/55350010/ive-installed-cudnn-but-error-failed-to-get-convolution-algorithm-shows-up
 config = tf.ConfigProto()
@@ -46,27 +38,40 @@ sess = tf.Session(config=config)
 dtype_float = np.float32
 # dtype_float = np.float16
 
-USE_CACHED_MODEL = False
+USE_CACHED_MODEL = True
 
-train_percentage = 0.02  # 1
+train_percentage = 0.005  # 1
+# train_percentage = 0.1  # 1
 
-CHECK_IMAGES = 10
+# train_percentage = 1  # 1
+
+# play with this value to increase AUC
+preds_threshold = 0.5
+
+CHECK_IMAGES = 20
 
 SAVE_FIG = True
 
 # Set some parameters
 # image_dimension = 650 # original shape
-image_dimension = 512 # divisible down the layers and easy to concatenate
+split_dimension = 128
+image_dimension = 640  # resized dimension
 image_channels = 3
 mask_channels = 1
 
 # model
-border = 5
 batch_size = 16  # 32
-dropout = 0.1 # 0.1
-n_filters = 8 # 16
-epochs = 20 # 100
-patience = 5 # 20
+dropout = 0.1  # 0.1
+n_filters = 8  # 16
+epochs = 50  # 100
+patience = 10  # 20
+
+# model FAST
+batch_size = 8  # 32
+dropout = 0.1  # 0.1
+n_filters = 4  # 16
+epochs = 30  # 100
+patience = 10  # 20
 
 # path_train = 'data/salt/gltrain/
 path_train = 'data/salt/train/'
@@ -74,130 +79,127 @@ assets = 'assets/spacenet/'
 
 # Get and resize train images and masks
 
-parameters = f'_train{train_percentage}_batch{batch_size}_dropout{dropout}_n_filters{n_filters}' 
+parameters = f'_dim{split_dimension}_epochs{epochs}_train{train_percentage}_batch{batch_size}_dropout{dropout}_n_filters{n_filters}'
 CACHED_MODEL_FILENAME = f'models/spacenet{parameters}.h5'
+CACHED_PREDICTION_FILENAME = f'models/spacenet{parameters}_preds.pkl'
 
 
 def savefig(fig, name, save=SAVE_FIG):
     if save:
-        fig.savefig(name)
+        fig.savefig(
+            name,
+            bbox_inches='tight'
+        )
 
 
-ids, X, y = gldata.get_data(
-    image_dimension, image_channels, mask_channels, train_percentage, train=True)
+ids = gldata.get_image_ids()
+
+if train_percentage != 1:
+    train_index = int((len(ids) * train_percentage) // 1)
+    ids = ids[:train_index]
+
+ids_remainder, ids_test = train_test_split(
+    ids, test_size=0.15)
+
+X_ids_train, X_ids_valid = train_test_split(
+    ids_remainder, test_size=0.20)
+
+X_train, y_train = gldata.get_data(
+    X_ids_train,
+    split_dimension,
+    image_dimension,
+    image_channels,
+    mask_channels,
+    train_percentage,
+)
+
+X_valid, y_valid = gldata.get_data(
+    X_ids_valid,
+    split_dimension,
+    image_dimension,
+    image_channels,
+    mask_channels,
+    train_percentage,
+)
+
+X_test, y_test = gldata.get_data(
+    ids_test,
+    split_dimension,
+    image_dimension,
+    image_channels,
+    mask_channels,
+    train_percentage,
+)
 
 # Split train and valid
 # TODO after this split the variable id_without_ext will be off, and also the y_train...?
-X_train, X_valid, y_train, y_valid = train_test_split(
-    X, y, test_size=0.15, random_state=2018)
 
 # Check if training data looks all right
-ix = random.randint(0, len(X_train) - 1)
-id_without_ext = ids[ix].split('.')[0]
-has_mask = y_train[ix].max() > 0
+for ix in range(1):
+    id_without_ext = X_ids_train[ix].split('.')[0]
 
-fig, ax = plt.subplots(1, 2, figsize=(20, 10))
+    start = ix * 25
+    end = start + 25
 
-ax[0].imshow(X_train[ix, ..., 0], interpolation='bilinear')
-# ax[0].imshow(X_train[ix, ..., 0], cmap='seismic', interpolation='bilinear')
-if has_mask:
-    ax[0].contour(y_train[ix].squeeze(), colors='k', levels=[0.5])
-ax[0].set_title(f'Satellite {id_without_ext}')
+    x_image = gldata.stich_images(X_train[start:end])
+    y_image = gldata.stich_images(y_train[start:end])
+    has_mask = y_image.max() > 0
 
-ax[1].imshow(y_train[ix].squeeze(), interpolation='bilinear', cmap='gray')
-ax[1].set_title(f'Buildings {id_without_ext}')
+    fig, ax = plt.subplots(1, 2, figsize=(20, 10))
 
-fig_name = os.path.join(assets, f'{id_without_ext}_mask_comparison.png')
-print(f'\nSaving figure {fig_name}')
-savefig(fig, fig_name)
+    ax[0].imshow(x_image, interpolation='bilinear')
+    # ax[0].imshow(X_train[ix, ..., 0], cmap='seismic', interpolation='bilinear')
+    if has_mask:
+        ax[0].contour(y_image.squeeze(), colors='k', levels=[0.5])
+    ax[0].set_title(f'Satellite {id_without_ext}')
 
+    ax[1].imshow(y_image.squeeze(), interpolation='bilinear', cmap='gray')
+    ax[1].set_title(f'Buildings {id_without_ext}')
 
-def conv2d_block(input_tensor, n_filters, kernel_size=3, batchnorm=True):
+    fig_name = os.path.join(
+        assets, f'{id_without_ext}_mask_comparison_{parameters}.png')
+    print(f'\nSaving figure {fig_name}\n')
+    savefig(fig, fig_name)
 
-    """
-    Function to add 2 convolutional layers with the parameters passed to it
-    """
-    # first layer
-    x = Conv2D(filters=n_filters, kernel_size=(kernel_size, kernel_size),
-               kernel_initializer='he_normal', padding='same')(input_tensor)
-    if batchnorm:
-        x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    # check 25 images
+    fig, axs = plt.subplots(
+        5, 10,
+        sharex=True, sharey=True,
+        gridspec_kw={'hspace': 0, 'wspace': 0},
+        figsize=(20, 10)
+    )
 
-    # second layer
-    x = Conv2D(filters=n_filters, kernel_size=(kernel_size, kernel_size),
-               kernel_initializer='he_normal', padding='same')(input_tensor)
-    if batchnorm:
-        x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    fig.suptitle('Satellite with Building Mask')
+    counter = start + 0
+    id_without_ext = ids[ix].split('.')[0]
+    for i in range(5):
+        for j in range(5):
+            axs[i, j].imshow(X_train[counter], interpolation='bilinear')
+            axs[i, j].contour(y_train[counter].squeeze(),
+                              colors='k', levels=[0.5])
+            counter += 1
 
-    return x
+    counter = start + 0
+    for i in range(5):
+        for j in range(5, 10):
+            axs[i, j].imshow(y_train[counter].squeeze(),
+                             interpolation='bilinear', cmap='gray')
+            counter += 1
 
+    for ax_row in axs:
+        for ax in ax_row:
+            ax.label_outer()
 
-def get_unet(input_img, n_filters=16, dropout=dropout, batchnorm=True):
-
-    """
-    create a unet model
-
-    # (glull) keras didn't have a built-in U-Net model so the overall code for get_unet is from
-    # an online source: https://www.depends-on-the-definition.com/unet-keras-segmenting-images/,
-    # the only things i tweaked were the variables, dimensions, and filters.
-
-    """
-    # Contracting Path
-    c1 = conv2d_block(input_img, n_filters * 1,
-                      kernel_size=3, batchnorm=batchnorm)
-    p1 = MaxPooling2D((2, 2))(c1)
-    p1 = Dropout(dropout)(p1)
-
-    c2 = conv2d_block(p1, n_filters * 2, kernel_size=3, batchnorm=batchnorm)
-    p2 = MaxPooling2D((2, 2))(c2)
-    p2 = Dropout(dropout)(p2)
-
-    c3 = conv2d_block(p2, n_filters * 4, kernel_size=3, batchnorm=batchnorm)
-    p3 = MaxPooling2D((2, 2))(c3)
-    p3 = Dropout(dropout)(p3)
-
-    c4 = conv2d_block(p3, n_filters * 8, kernel_size=3, batchnorm=batchnorm)
-    p4 = MaxPooling2D((2, 2))(c4)
-    p4 = Dropout(dropout)(p4)
-
-    c5 = conv2d_block(p4, n_filters=n_filters * 16,
-                      kernel_size=3, batchnorm=batchnorm)
-
-    # Expansive Path
-    u6 = Conv2DTranspose(n_filters * 8, (3, 3),
-                         strides=(2, 2), padding='same')(c5)
-    u6 = concatenate([u6, c4])
-    u6 = Dropout(dropout)(u6)
-    c6 = conv2d_block(u6, n_filters * 8, kernel_size=3, batchnorm=batchnorm)
-
-    u7 = Conv2DTranspose(n_filters * 4, (3, 3),
-                         strides=(2, 2), padding='same')(c6)
-    u7 = concatenate([u7, c3])
-    u7 = Dropout(dropout)(u7)
-    c7 = conv2d_block(u7, n_filters * 4, kernel_size=3, batchnorm=batchnorm)
-
-    u8 = Conv2DTranspose(n_filters * 2, (3, 3),
-                         strides=(2, 2), padding='same')(c7)
-    u8 = concatenate([u8, c2])
-    u8 = Dropout(dropout)(u8)
-    c8 = conv2d_block(u8, n_filters * 2, kernel_size=3, batchnorm=batchnorm)
-
-    u9 = Conv2DTranspose(n_filters * 1, (3, 3),
-                         strides=(2, 2), padding='same')(c8)
-    u9 = concatenate([u9, c1])
-    u9 = Dropout(dropout)(u9)
-    c9 = conv2d_block(u9, n_filters * 1, kernel_size=3, batchnorm=batchnorm)
-
-    outputs = Conv2D(1, (1, 1), activation='sigmoid')(c9)
-    model = Model(inputs=[input_img], outputs=[outputs])
-    return model
+    fig_name = os.path.join(
+        assets, f'{id_without_ext}_unstiched_mask_comparison_{parameters}.png')
+    print(f'\nSaving figure {fig_name}')
+    savefig(fig, fig_name)
 
 
-input_img = Input((image_dimension, image_dimension,
+input_img = Input((split_dimension, split_dimension,
                    image_channels), name='img')
-model = get_unet(input_img, n_filters=n_filters, dropout=dropout, batchnorm=True)
+model = glunet.get_unet(input_img, n_filters=n_filters,
+                        dropout=dropout, batchnorm=True)
 
 model.compile(optimizer=Adam(), loss="binary_crossentropy",
               metrics=["accuracy"])
@@ -205,18 +207,21 @@ model.summary()
 
 print('model summary')
 
-callbacks = [
-    EarlyStopping(patience=patience, verbose=1),
-    ReduceLROnPlateau(factor=0.1, patience=3, min_lr=0.00001, verbose=1),
-    ModelCheckpoint(CACHED_MODEL_FILENAME, verbose=1,
-                    save_best_only=True, save_weights_only=True)
-]
 
 if USE_CACHED_MODEL and os.path.exists(CACHED_MODEL_FILENAME):
+    print(f'\n\nUsing cached model: {CACHED_MODEL_FILENAME}')
     model.load_weights(CACHED_MODEL_FILENAME)
     model.evaluate(X_valid, y_valid, verbose=1)
 
 else:
+    print(f'\n\nNo cached model found, will save as: {CACHED_MODEL_FILENAME}')
+
+    callbacks = [
+        EarlyStopping(patience=patience, verbose=1),
+        ReduceLROnPlateau(factor=0.1, patience=3, min_lr=0.00001, verbose=1),
+        ModelCheckpoint(CACHED_MODEL_FILENAME, verbose=1,
+                        save_best_only=True, save_weights_only=True)
+    ]
 
     epochs = epochs
     results = model.fit(
@@ -242,53 +247,91 @@ else:
     savefig(plt, name)
 
 # Predict on train, val and test
-preds_train = model.predict(X_train, verbose=1)
-preds_val = model.predict(X_valid, verbose=1)
+
+if os.path.exists(CACHED_PREDICTION_FILENAME):
+    with open(CACHED_PREDICTION_FILENAME, 'rb') as readfile:
+        preds = pickle.load(readfile)
+        preds_train = preds['train']
+        preds_val = preds['val']
+        preds_test = preds['test']
+
+else:
+    preds_train = model.predict(X_train, verbose=1)
+    preds_val = model.predict(X_valid, verbose=1)
+    preds_test = model.predict(X_test, verbose=1)
+    preds = {
+        'train': preds_train,
+        'val': preds_val,
+        'test': preds_test
+    }
+
+    with open(CACHED_PREDICTION_FILENAME, 'wb') as writefile:
+        pickle.dump(preds, writefile)
 
 # Threshold predictions
-preds_train_t = (preds_train > 0.5).astype(np.uint8)
-preds_val_t = (preds_val > 0.5).astype(np.uint8)
+preds_train_t = (preds_train > preds_threshold).astype(np.uint8)
+preds_val_t = (preds_val > preds_threshold).astype(np.uint8)
+preds_test_t = (preds_test > preds_threshold).astype(np.uint8)
 
 
 def plot_sample(X, y, preds, binary_preds, ix=None):
-    if ix is None:
-        ix = random.randint(0, len(X))
+    start = ix * 25
+    end = start + 25
 
-    has_mask = y[ix].max() > 0
+    x_image = gldata.stich_images(X[start:end])
+
+    y_image = gldata.stich_images(y[start:end])
+
+    preds_image = gldata.stich_images(preds[start:end])
+
+    binary_preds_image = gldata.stich_images(binary_preds[start:end])
+
+    has_mask = y_image.max() > 0
 
     plt.close()
-    fig, ax = plt.subplots(1, 4, figsize=(20, 10))
-    ax[0].imshow(X[ix, ..., 0])
-    # ax[0].imshow(X[ix, ..., 0], cmap='seismic')
+
+    fig, ax = plt.subplots(
+        1, 4, figsize=(20, 10)
+    )
+
+    ax[0].imshow(x_image)
     if has_mask:
-        ax[0].contour(y[ix].squeeze(), colors='k', levels=[0.5])
+        ax[0].contour(y_image.squeeze(), colors='k', levels=[0.5])
     ax[0].set_title('Satellite')
 
-    ax[1].imshow(y[ix].squeeze())
+    ax[1].imshow(y_image.squeeze())
     ax[1].set_title('Buildings')
 
-    ax[2].imshow(preds[ix].squeeze(), vmin=0, vmax=1)
+    ax[2].imshow(preds_image.squeeze(), vmin=0, vmax=1)
     if has_mask:
-        ax[2].contour(y[ix].squeeze(), colors='k', levels=[0.5])
+        ax[2].contour(y_image.squeeze(), colors='k', levels=[0.5])
     ax[2].set_title('Buildings Predicted')
 
-    ax[3].imshow(binary_preds[ix].squeeze(), vmin=0, vmax=1)
+    ax[3].imshow(binary_preds_image.squeeze(), vmin=0, vmax=1)
     if has_mask:
-        ax[3].contour(y[ix].squeeze(), colors='k', levels=[0.5])
+        ax[3].contour(y_image.squeeze(), colors='k', levels=[0.5])
     ax[3].set_title('Buildings Predicted binary')
 
     return fig
 
 
 # Check if training data looks all right
-for i in range(CHECK_IMAGES):
+for i in range(min(CHECK_IMAGES, y_train.shape[0])):
     fig_train = plot_sample(
         X_train, y_train, preds_train, preds_train_t, ix=i)
-    name = f'{assets}spacenet_train_predicted_fig_{i}{parameters}.png'
+    name = f'{assets}spacenet_train_predicted_fig_{i}_{parameters}.png'
     savefig(fig_train, name)
 
 # Check if validation data looks all right
-for i in range(CHECK_IMAGES):
+for i in range(min(CHECK_IMAGES, y_valid.shape[0])):
     fig_val = plot_sample(X_valid, y_valid, preds_val, preds_val_t, ix=i)
-    name = f'{assets}spacenet_val_predicted_fig_{i}{parameters}.png'
+    name = f'{assets}spacenet_val_predicted_fig_{i}_{parameters}.png'
     savefig(fig_val, name)
+
+# Check tests
+for i in range(min(CHECK_IMAGES, y_test.shape[0])):
+    fig_val = plot_sample(X_test, y_test, preds_test, preds_test_t, ix=i)
+    name = f'{assets}spacenet_test_predicted_fig_{i}_{parameters}.png'
+    savefig(fig_val, name)
+
+print(f'\n\nparameters:\n{parameters}\n\n')
