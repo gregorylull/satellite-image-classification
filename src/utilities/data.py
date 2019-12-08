@@ -191,7 +191,6 @@ def get_data(
     image_dimension=image_dimension,
     image_channels=image_channels,
     mask_channels=mask_channels,
-    train_percentage=1.0,
 ):
 
     postfix = f'_resize{image_dimension}_split{split_dimension}'
@@ -213,7 +212,7 @@ def get_data(
                       mask_channels), dtype=dtype_float)
 
         print(
-            f'\nExamining images (use preprocess) {total_ids} ({train_percentage * 100}%)')
+            f'\nExamining images (use preprocess) {total_ids}')
 
     else:
         image_dir = IMAGE_DIR
@@ -226,9 +225,11 @@ def get_data(
         y = np.zeros((len(ids), image_dimension, image_dimension,
                       mask_channels), dtype=dtype_float)
         print(
-            f'\nExamining images {len(ids)} ({train_percentage * 100}%)')
+            f'\nExamining images {len(ids)}')
 
     for n, id_ in tqdm(enumerate(ids), total=len(ids)):
+
+        start = n * (split_len ** 2)
 
         if use_preprocessed:
 
@@ -253,13 +254,13 @@ def get_data(
                 # TODO there may be an issue right here
                 # fixed with dividing y_mask by a certain size.
                 x_norm = x_img.squeeze() / RGB_bits
-                X[n + image_count, ...] = x_norm
+                X[start + image_count] = x_norm
 
             for mask_count, mask_path in enumerate(mask_paths_glob):
                 # Load masks
                 y_mask = tifffile.imread(mask_path)
                 y_norm = y_mask / mask_bits
-                y[n + mask_count] = y_norm
+                y[start + mask_count] = y_norm
 
         else:
             image_path = os.path.join(image_dir, f'{image_prefix}{id_}.tif')
@@ -294,3 +295,13 @@ def get_data(
 
     print('\nDone getting images!')
     return X, y
+
+
+# X = np.zeros((8, 4, 4, 3))
+# for i in range(4):
+#     something = np.zeros((4, 4, 3))
+#     something.fill(i + 1)
+#     X[i] = something
+
+# img = gldata.stich_images(X[0:4])
+# img

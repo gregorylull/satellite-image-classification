@@ -104,13 +104,14 @@ ids_remainder, ids_test = train_test_split(
 X_ids_train, X_ids_valid = train_test_split(
     ids_remainder, test_size=0.20)
 
+print(f'\n\nTrain percentage: {train_percentage * 100}%\n\n')
+
 X_train, y_train = gldata.get_data(
     X_ids_train,
     split_dimension,
     image_dimension,
     image_channels,
     mask_channels,
-    train_percentage,
 )
 
 X_valid, y_valid = gldata.get_data(
@@ -119,7 +120,6 @@ X_valid, y_valid = gldata.get_data(
     image_dimension,
     image_channels,
     mask_channels,
-    train_percentage,
 )
 
 X_test, y_test = gldata.get_data(
@@ -128,8 +128,8 @@ X_test, y_test = gldata.get_data(
     image_dimension,
     image_channels,
     mask_channels,
-    train_percentage,
 )
+
 
 # Split train and valid
 # TODO after this split the variable id_without_ext will be off, and also the y_train...?
