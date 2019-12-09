@@ -24,10 +24,12 @@ if train_percentage != 1:
 
 print(f'Splitting {len(ids)} images')
 
-gldata.create_data(
-    ids,
-    split_dimension,
-    image_dimension,
-    image_channels,
-    mask_channels
-)
+for float_type in ['32', '16']:
+    gldata.create_data(
+        ids,
+        split_dimension,
+        image_dimension,
+        image_channels,
+        mask_channels,
+        float_type
+    )

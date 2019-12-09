@@ -5,10 +5,11 @@ from keras.layers.pooling import MaxPooling2D, GlobalMaxPool2D
 from keras.layers.merge import concatenate, add
 from keras.models import Model, load_model
 
-def conv2d_block(input_tensor, n_filters, kernel_size=3, batchnorm=True):
 
+def conv2d_block(input_tensor, n_filters, kernel_size=3, batchnorm=True):
     """
     Function to add 2 convolutional layers with the parameters passed to it
+    Fixed to add second layer
     """
     # first layer
     x = Conv2D(filters=n_filters, kernel_size=(kernel_size, kernel_size),
@@ -18,17 +19,16 @@ def conv2d_block(input_tensor, n_filters, kernel_size=3, batchnorm=True):
     x = Activation('relu')(x)
 
     # second layer
-    x = Conv2D(filters=n_filters, kernel_size=(kernel_size, kernel_size),
-               kernel_initializer='he_normal', padding='same')(input_tensor)
+    x2 = Conv2D(filters=n_filters, kernel_size=(kernel_size, kernel_size),
+                kernel_initializer='he_normal', padding='same')(x)
     if batchnorm:
-        x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+        x2 = BatchNormalization()(x2)
+    x2 = Activation('relu')(x2)
 
-    return x
+    return x2
 
 
 def get_unet(input_img, n_filters, dropout, batchnorm=True):
-
     """
     create a unet model
 
@@ -108,7 +108,6 @@ def get_unet(input_img, n_filters, dropout, batchnorm=True):
 
 
 def get_unet(input_img, n_filters, dropout, batchnorm=True):
-
     """
     create a unet model
 

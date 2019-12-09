@@ -29,6 +29,7 @@ vegas_csv = 'AOI_2_Vegas_Train_Building_Solutions.csv'
 image_dimension = 650
 image_channels = 3
 mask_channels = 1
+float_type = 'float16'
 
 dtype_float = np.float32
 
@@ -42,9 +43,12 @@ def get_image_ids(csv_file=vegas_csv):
 
     if os.path.exists(image_id_filename):
         with open(image_id_filename, 'rb') as readfile:
-            return pickle.load(readfile)
+            loaded = pickle.load(readfile)
+            print(f'\n\nUsing pickled ids #{len(loaded)}\n')
+            return loaded
 
     else:
+        print()
         summary_csv = os.path.join(
             data, AOI, 'summaryData', csv_file
         )
@@ -53,8 +57,19 @@ def get_image_ids(csv_file=vegas_csv):
 
         sorted_ids = sorted(imageids)
 
+        existing_ids = []
+        for id_ in sorted_ids:
+            image_path = os.path.join(IMAGE_DIR, f'{image_prefix}{id_}.tif')
+            mask_path = os.path.join(OUTPUT_DIR, f'{id_}_mask.tif')
+            files_exist = (os.path.exists(image_path)
+                           and os.path.exists(mask_path))
+            if files_exist:
+                existing_ids.append(id_)
+
         with open(image_id_filename, 'wb') as writefile:
-            pickle.dump(sorted_ids, writefile)
+            print(
+                f'Caching ids that exist for image and mask: {len(existing_ids)} / {len(sorted_ids)} {len(existing_ids) / len(sorted_ids) * 100}%')
+            pickle.dump(existing_ids, writefile)
 
         return sorted_ids
 
@@ -65,17 +80,25 @@ def create_data(
     image_dimension=image_dimension,
     image_channels=image_channels,
     mask_channels=mask_channels,
+    dtype_float=np.float32
 ):
-    postfix = f'_resize{image_dimension}_split{split_dimension}'
+    postfix = f'_resize{image_dimension}_split{split_dimension}_bit{RGB_bits}_float{dtype_float}'
 
     preprocessed_image_dir = f'{IMAGE_DIR}{postfix}'
     preprocessed_output_dir = f'{OUTPUT_DIR}{postfix}'
+
+    if dtype_float == '32':
+        float_type = np.float32
+    elif dtype_float == '16':
+        float_type = np.float16
+    else:
+        float_type = np.float32
 
     use_preprocessed = os.path.exists(
         preprocessed_image_dir) and os.path.exists(preprocessed_output_dir)
 
     if use_preprocessed:
-        print('\nImage directories already exist, please deleted to create new images.')
+        print('\nImage directories already exist, please deleted to create new images.\n')
         return
 
     os.mkdir(preprocessed_image_dir)
@@ -99,15 +122,22 @@ def create_data(
         # Load images
         x_img = tifffile.imread(image_path)
 
-        # Load masks
         mask = tifffile.imread(mask_path)
 
-        # x_img = img_to_array(img)
         x_img = resize(x_img, (image_dimension, image_dimension, image_channels),
                        mode='constant', preserve_range=True)
 
+        x_img = x_img.squeeze() / RGB_bits
+
+        x_img = x_img.astype(float_type)
+
+        # Load masks
         y_mask = resize(mask, (image_dimension, image_dimension, mask_channels),
                         mode='constant', preserve_range=True)
+
+        y_mask = y_mask / mask_bits
+
+        y_mask = y_mask.astype(float_type)
 
         x_split_images = split_image(
             x_img, image_dimension, split_dimension, split_len)
@@ -191,14 +221,20 @@ def get_data(
     image_dimension=image_dimension,
     image_channels=image_channels,
     mask_channels=mask_channels,
+    float_type=float_type
 ):
 
-    postfix = f'_resize{image_dimension}_split{split_dimension}'
+    postfix = f'_resize{image_dimension}_split{split_dimension}_bit2047_{float_type}'
     preprocessed_image_dir = f'{IMAGE_DIR}{postfix}'
     preprocessed_output_dir = f'{OUTPUT_DIR}{postfix}'
 
     use_preprocessed = os.path.exists(
         preprocessed_image_dir) and os.path.exists(preprocessed_output_dir)
+
+    if float_type == 'float16':
+        dtype_float = np.float16
+    elif float_type == 'float32':
+        dtype_float = np.float32
 
     if use_preprocessed:
         split_len = int(image_dimension // split_dimension)
@@ -253,14 +289,19 @@ def get_data(
 
                 # TODO there may be an issue right here
                 # fixed with dividing y_mask by a certain size.
-                x_norm = x_img.squeeze() / RGB_bits
-                X[start + image_count] = x_norm
+                # x_norm = x_img.squeeze() / RGB_bits
+                # X[start + image_count] = x_norm
+
+                # data has already been normalized in create_data()
+                X[start + image_count] = x_img
 
             for mask_count, mask_path in enumerate(mask_paths_glob):
                 # Load masks
                 y_mask = tifffile.imread(mask_path)
-                y_norm = y_mask / mask_bits
-                y[start + mask_count] = y_norm
+                # y_norm = y_mask / mask_bits
+                # y[start + mask_count] = y_norm
+
+                y[start + mask_count] = y_mask
 
         else:
             image_path = os.path.join(image_dir, f'{image_prefix}{id_}.tif')
