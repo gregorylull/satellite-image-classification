@@ -62,9 +62,9 @@ mask_channels = 1
 RGB_bits = 2047  # RGB images
 mask_bits = 255  # grayscale
 
-train_percentage = 1  # 1
+# train_percentage = 1  # 1
 # train_percentage = 0.75  # 1
-# train_percentage = 0.50  # 1
+train_percentage = 0.50  # 1
 # train_percentage = 0.25  # 1
 # train_percentage = 0.1  # 1
 # train_percentage = 0.05  # 1
@@ -125,6 +125,11 @@ ids_remainder, ids_test = train_test_split(
 X_ids_train, X_ids_valid = train_test_split(
     ids_remainder, test_size=0.20)
 
+USE_X_TRAIN = False
+USE_X_VALID = False
+USE_X_TEST = True
+
+
 print(f'\n\nTrain percentage: {len(ids)} {train_percentage * 100}%\n\n')
 
 
@@ -138,32 +143,40 @@ def get_tvt(
     image_channels=image_channels,
     mask_channels=mask_channels
 ):
-    X_train, y_train = gldata.get_data(
-        X_ids_train,
-        split_dimension,
-        image_dimension,
-        image_channels,
-        mask_channels,
-        float_type
-    )
 
-    X_valid, y_valid = gldata.get_data(
-        X_ids_valid,
-        split_dimension,
-        image_dimension,
-        image_channels,
-        mask_channels,
-        float_type
-    )
+    X_train, y_train = [], []
+    X_valid, y_valid = [], []
+    X_test, y_test = [], []
 
-    X_test, y_test = gldata.get_data(
-        ids_test,
-        split_dimension,
-        image_dimension,
-        image_channels,
-        mask_channels,
-        float_type
-    )
+    if USE_X_TRAIN:
+        X_train, y_train = gldata.get_data(
+            X_ids_train,
+            split_dimension,
+            image_dimension,
+            image_channels,
+            mask_channels,
+            float_type
+        )
+
+    if USE_X_VALID:
+        X_valid, y_valid = gldata.get_data(
+            X_ids_valid,
+            split_dimension,
+            image_dimension,
+            image_channels,
+            mask_channels,
+            float_type
+        )
+
+    if USE_X_TEST:
+        X_test, y_test = gldata.get_data(
+            ids_test,
+            split_dimension,
+            image_dimension,
+            image_channels,
+            mask_channels,
+            float_type
+        )
 
     return X_train, y_train, X_valid, y_valid, X_test, y_test
 
@@ -279,7 +292,7 @@ def train_cache_model(
     if use_cached_model and os.path.exists(cached_model_filename):
         print(f'\n\nUsing cached model: {cached_model_filename}')
         model.load_weights(cached_model_filename)
-        model.evaluate(X_valid, y_valid, verbose=1)
+        # model.evaluate(X_valid, y_valid, verbose=1)
 
     else:
         print(
@@ -348,6 +361,10 @@ def get_predictions(model, X_train, X_valid, X_test, cached_prediction_filename=
 # Threshold predictions
 
 
+def plot_overlap(X, y, preds, binary_preds, ix=None):
+    pass
+
+
 def get_predictions_thresholds(preds, preds_threshold=preds_threshold):
     preds_train = preds['train']
     preds_val = preds['val']
@@ -378,7 +395,7 @@ def plot_sample(X, y, preds, binary_preds, ix=None):
     plt.close()
 
     fig, ax = plt.subplots(
-        1, 4, figsize=(20, 10)
+        1, 4, figsize=(40, 20)
     )
 
     ax[0].imshow(x_image)
@@ -427,23 +444,28 @@ def output_train_val_test_images(
         preds, preds_threshold)
 
     # Check if training data looks all right
-    for i in range(min(CHECK_IMAGES, int(y_train.shape[0] / (split_len ** 2)))):
-        fig_train = plot_sample(
-            X_train, y_train, preds_train, preds_train_t, ix=i)
-        name = f'{dirpath}/spacenet_train_predicted_fig_{i}_{parameters}.png'
-        savefig(fig_train, name)
+    if USE_X_TRAIN:
+        for i in range(min(CHECK_IMAGES, int(y_train.shape[0] / (split_len ** 2)))):
+            fig_train = plot_sample(
+                X_train, y_train, preds_train, preds_train_t, ix=i)
+            name = f'{dirpath}/spacenet_train_predicted_fig_{i}_{parameters}.png'
+            savefig(fig_train, name)
 
     # Check if validation data looks all right
-    for i in range(min(CHECK_IMAGES, int(y_valid.shape[0] / (split_len ** 2)))):
-        fig_val = plot_sample(X_valid, y_valid, preds_val, preds_val_t, ix=i)
-        name = f'{dirpath}/spacenet_val_predicted_fig_{i}_{parameters}.png'
-        savefig(fig_val, name)
+    if USE_X_VALID:
+        for i in range(min(CHECK_IMAGES, int(y_valid.shape[0] / (split_len ** 2)))):
+            fig_val = plot_sample(
+                X_valid, y_valid, preds_val, preds_val_t, ix=i)
+            name = f'{dirpath}/spacenet_val_predicted_fig_{i}_{parameters}.png'
+            savefig(fig_val, name)
 
     # Check tests
-    for i in range(min(CHECK_IMAGES, int(y_test.shape[0] / (split_len ** 2)))):
-        fig_val = plot_sample(X_test, y_test, preds_test, preds_test_t, ix=i)
-        name = f'{dirpath}/spacenet_test_predicted_fig_{i}_{parameters}.png'
-        savefig(fig_val, name)
+    if USE_X_TEST:
+        for i in range(min(CHECK_IMAGES, int(y_test.shape[0] / (split_len ** 2)))):
+            fig_val = plot_sample(
+                X_test, y_test, preds_test, preds_test_t, ix=i)
+            name = f'{dirpath}/spacenet_test_predicted_fig_{i}_{parameters}.png'
+            savefig(fig_val, name)
 
 
 def main_fast():
@@ -545,7 +567,7 @@ def main_grid():
 
         read_files_end = time.time() - read_files_start
 
-        for dropout in tqdm([0.1, 0.2, 0.3, 0.4], total=3):
+        for dropout in tqdm([0.1], total=3):
 
             for n_filters in [16]:
 
