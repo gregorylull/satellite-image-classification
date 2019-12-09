@@ -94,8 +94,8 @@ def create_data(
                        mode='constant', preserve_range=True)
 
         # commneted out for spacenet exp
-        # x_img = x_img.squeeze() / RGB_bits
-        # x_img = x_img.astype(np.float16)
+        x_img = x_img.squeeze() / RGB_bits
+        x_img = x_img.astype(np.float16)
 
         # Load masks
         x_split_images = gldata.split_image(
