@@ -56,15 +56,15 @@ SAVE_FIG = True
 # image_dimension = 650 # original shape
 split_dimension = 128
 image_dimension = 640  # resized dimension
-split_len = int(image_dimension // 128)
+split_len = int(image_dimension // split_dimension)
 image_channels = 3
 mask_channels = 1
 RGB_bits = 2047  # RGB images
 mask_bits = 255  # grayscale
 
-# train_percentage = 1  # 1
+train_percentage = 1  # 1
 # train_percentage = 0.75  # 1
-train_percentage = 0.50  # 1
+# train_percentage = 0.50  # 1
 # train_percentage = 0.25  # 1
 # train_percentage = 0.1  # 1
 # train_percentage = 0.05  # 1
@@ -545,11 +545,11 @@ def main_grid():
 
         read_files_end = time.time() - read_files_start
 
-        for dropout in tqdm([0.1, 0.2, 0.3], total=3):
+        for dropout in tqdm([0.1, 0.2, 0.3, 0.4], total=3):
 
-            for n_filters in [32, 16]:
+            for n_filters in [16]:
 
-                for batch_size in [64, 32]:
+                for batch_size in [64]:
 
                     train_model_start = time.time()
 

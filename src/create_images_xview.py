@@ -1,112 +1,117 @@
 
-# conda activate solaris
-# (glull) follow the solaris installation and tutorial to create
-# spacenet masks https://solaris.readthedocs.io/en/latest/tutorials/notebooks/api_masks_tutorial.html
-# note, can also create multiple layers if necessary (i.e. if there's other data like roads).
-
-import solaris as sol
-from solaris.data import data_dir
 import os
-import skimage
-import geopandas as gpd
-from matplotlib import pyplot as plt
-from shapely.ops import cascaded_union
-
-from tqdm import tqdm
-import pandas as pd
 import numpy as np
+import pandas as pd
 import glob
+from tqdm import tqdm_notebook, tnrange, tqdm
 
-# arguments to mask creation
-# df: A pandas.DataFrame or geopandas.GeoDataFrame containing polygons in one column.
-# out_file: An optional argument to specify a filepath to save outputs to.
-# reference_im: A georegistered image covering the same geography as df. This is optional, but if it’s not provided and you wish to convert the polygons from a geospatial CRS to pixel coordinates, you must provide affine_obj.
-# geom_col: An optional argument specifying which column holds polygons in df. This defaults to "geometry", the default geometry column in GeoDataFrames.
-# do_transform: Should polygons be transformed from a geospatial CRS to pixel coordinates? solaris will try to infer whether or not this is necessary, but you can force behavior by providing True or False with this argument.
-# affine_obj: An affine object specifying a transform to convert polygons from a geospatial CRS to pixel coordinates. This optional (unless do_transform=True and you don’t provide reference_im), and is superceded by reference_im if that argument is also provided.
-# shape: Optionally, the (X, Y) bounds of the output image. If reference_im is provided, the shape of that image supercedes this argument.
-# out_type: Either int or float, the dtype of the output. Defaults to int.
-# burn_value: The value that pixels falling within the polygon will be set to. Defaults to 255.
-# burn_field: Optionally, a column within df that specifies the value to set for each individual polygon. This can be used if you have multiple classes.
+from skimage.io import imread, imshow, concatenate_images, imsave
+from skimage.transform import resize
+from skimage.morphology import label
+from sklearn.model_selection import train_test_split
+from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 
-# this is mask creation
-data = 'data/spacenet/'
-AOI = 'AOI_2_Vegas_Train/'
-image_prefix = 'RGB-PanSharpen_'
-geojson_prefix = 'buildings_'
+from src.utilities import data as gldata
 
-image_dir = os.path.join(data, AOI, 'RGB-PanSharpen')
-# image_dir = os.path.join(data, AOI, 'test_RGB-PanSharpen')
+import pickle
+import re
 
-geojson_dir = os.path.join(data, AOI, 'geojson', 'buildings')
-output_dir = os.path.join(data, AOI, 'RGB-PanSharpen_masks')
+data = 'data/xview2/xview2_tier3/'
 
-image_id = 'AOI_2_Vegas_img1'
+# image_folder = 'snippet_test_images'
 
-# # create a single mask
-# fp_mask = sol.vector.mask.footprint_mask(
-#     df = os.path.join(geojson_dir, geojson_filename),
-#     reference_im = os.path.join(image_dir, image_filename),
-#     out_file = os.path.join(output_dir, output_filename)
-# )
+# testing for spacenet
+image_folder = 'snippet'
 
+IMAGE_DIR = os.path.join(data, image_folder)
 
-def create_mask(image_id):
+image_glob_paths = os.path.join(IMAGE_DIR, '*.png')
 
-    image_filename = f'{image_prefix}{image_id}.tif'
-    geojson_filename = f'{geojson_prefix}{image_id}.geojson'
-    output_filename = f'{image_id}_mask.tif'
+split_dimension = 128
+# image_dimension = 1024
+image_dimension = 640  # testing for spacenet
+image_channels = 3
+# mask_channels = 1
+RGB_bits = 255  # RGB images
+# mask_bits = 255  # grayscale
+EXT = '.png'
 
-    df = os.path.join(geojson_dir, geojson_filename)
-    reference_im = os.path.join(image_dir, image_filename)
-    out_file = os.path.join(output_dir, output_filename)
+train_percentage = 1
+# train_percentage = 0.1
+snippet_image_paths = glob.glob(image_glob_paths)
 
-    fp_mask = sol.vector.mask.footprint_mask(
-        df=df,
-        reference_im=reference_im,
-        out_file=out_file
-    )
+train_index = int((len(snippet_image_paths) * train_percentage) // 1)
+
+if not snippet_image_paths:
+    print('\npath not correct\n')
+    exit()
+
+if train_percentage != 1:
+    snippet_image_paths = snippet_image_paths[:train_index]
 
 
-def create_masks(image_ids):
-    for index, image_id in tqdm(enumerate(image_ids)):
-        create_mask(image_id)
+print(f'Splitting {len(snippet_image_paths)} images')
 
 
-def get_image_ids():
+def create_data(
+    image_paths,
+    split_dimension=image_dimension,
+    image_dimension=image_dimension,
+    image_channels=image_channels,
+):
 
-    summary_csv = os.path.join(
-        data, AOI, 'summaryData', 'AOI_2_Vegas_Train_Building_Solutions.csv'
-    )
-    df = pd.read_csv(summary_csv)
-    imageids = df['ImageId'].unique()
+    postfix = f'_split{split_dimension}_bit{RGB_bits}_float{16}'
 
-    return sorted(imageids)
+    preprocessed_image_dir = os.path.join(data, f'{image_folder}{postfix}')
 
+    use_preprocessed = os.path.exists(
+        preprocessed_image_dir)
 
-def main():
+    if use_preprocessed:
+        print('\nImage directories already exist, please deleted to create new images.\n')
+        return
 
-    print('Getting ids...')
-    image_ids = get_image_ids()
-    print(f'  finished retrieving image_ids {len(image_ids)}')
+    os.mkdir(preprocessed_image_dir)
 
-    print('Creating masks...')
-    create_masks(image_ids)
-    print('  finished creating masks')
+    print(f'creating preprocessed directory for {postfix} images')
+
+    split_len = int(image_dimension // split_dimension)
+    print(f'\nimages ({image_dimension}, {image_dimension}) will be split into ({split_dimension}, {split_dimension}) == {split_len ** 2} images\n')
+
+    # sanity check
+    assert (split_len * split_dimension) == image_dimension
+
+    for image_path in tqdm(image_paths, total=len(image_paths)):
+
+        # data/xview2/xview2_tier3/snippet_test_images/joplin-tornado_00000000_post_disaster.png
+        filename = image_path.split('/')[-1]
+        filename_wo_ext = re.sub(EXT, '', filename)
+
+        # Load images
+        x_img = imread(image_path)
+
+        x_img = resize(x_img, (image_dimension, image_dimension, image_channels),
+                       mode='constant', preserve_range=True)
+
+        # commneted out for spacenet exp
+        # x_img = x_img.squeeze() / RGB_bits
+        # x_img = x_img.astype(np.float16)
+
+        # Load masks
+        x_split_images = gldata.split_image(
+            x_img, image_dimension, split_dimension, split_len)
+
+        for index, x_split_image in enumerate(x_split_images):
+            part = 'part_' + str(index).zfill(2)
+            image_save_path = os.path.join(
+                preprocessed_image_dir, f'{filename_wo_ext}_{part}{EXT}')
+            imsave(image_save_path, x_split_image)
 
 
 if __name__ == '__main__':
-    print('\nRunning mask program\n')
-    main()
-
-# this is a preview of the images
-# image = skimage.io.imread(os.path.join(data, 'sample_geotiff.tif'))
-# f, axarr = plt.subplots(figsize=(10, 10))
-
-# plt.savefig(f'{folder}example_fig.png')
-# plt.close()
-
-# plt.imshow(fp_mask, cmap='gray')
-# f, ax = plt.subplots(1, 2, figsize=(20, 10))
-
-# plt.savefig(os.path.join(data, f'image_mask_{image_id}.png'))
+    create_data(
+        snippet_image_paths,
+        split_dimension,
+        image_dimension,
+        image_channels,
+    )
