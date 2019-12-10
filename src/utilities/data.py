@@ -37,18 +37,69 @@ RGB_bits = 2047  # RGB images
 mask_bits = 255  # grayscale
 
 
-def get_image_ids(csv_file=vegas_csv):
+def get_parameters(
+    epochs,
+    train_percentage,
+    batch_size,
+    dropout,
+    n_filters,
+    metric_params,
+    loss_params,
+    float_type,
+):
+    """
+        return f'_epochs{epochs}_train{train_percentage}_batch{batch_size}_dropout{dropout}_n_filters{n_filters}_{float_type}'
+    """
 
-    image_id_filename = os.path.join(data, AOI, f'{csv_file}_ids.pkl')
+    parameters = [
+        '',
+        f'epochs{epochs}',
+        f'train{train_percentage}',
+        f'batch{batch_size}',
+        f'dropout{dropout}',
+        f'n_filters{n_filters}',
+        f'metric-{metric_params}',
+        f'loss-{loss_params}',
+        f'{float_type}'
+    ]
+    return '_'.join(parameters)
+
+
+def get_percentage(arr, percentage=1.0):
+    if percentage != 1:
+        index = int((len(arr) * percentage) // 1)
+        arr = arr[:index]
+
+    return arr
+
+
+def get_image_ids(segmentation='all', train_percentage=1.0, test_size=0.2, csv_file=vegas_csv):
+    """
+    inputs:
+        segmentation = 'all', train', 'valid', 'test', 'remainder'(train + valid)
+
+    returns:
+        all the image ids for that segment
+    """
+
+    def get_segementation_path(csv_file, segmentation, test_size):
+        image_id_filename = os.path.join(
+            data, AOI, f'{csv_file}_{segmentation}_{test_size}_ids.pkl')
+        return image_id_filename
+
+    image_id_filename = get_segementation_path(
+        csv_file, segmentation, test_size)
 
     if os.path.exists(image_id_filename):
         with open(image_id_filename, 'rb') as readfile:
             loaded = pickle.load(readfile)
-            print(f'\n\nUsing pickled ids #{len(loaded)}\n')
-            return loaded
+            percentage_loaded = get_percentage(loaded, train_percentage)
+            print(
+                f'\nUsing pickled ids ({segmentation} {train_percentage * 100})% {len(percentage_loaded)} / {len(loaded)}\n')
+            return percentage_loaded
 
     else:
-        print()
+        print('\n\nSplitting ids into train valid test\n')
         summary_csv = os.path.join(
             data, AOI, 'summaryData', csv_file
         )
@@ -57,21 +108,40 @@ def get_image_ids(csv_file=vegas_csv):
 
         sorted_ids = sorted(imageids)
 
-        existing_ids = []
-        for id_ in sorted_ids:
-            image_path = os.path.join(IMAGE_DIR, f'{image_prefix}{id_}.tif')
-            mask_path = os.path.join(OUTPUT_DIR, f'{id_}_mask.tif')
-            files_exist = (os.path.exists(image_path)
-                           and os.path.exists(mask_path))
-            if files_exist:
-                existing_ids.append(id_)
+        ids_remainder, ids_test = train_test_split(
+            sorted_ids, test_size=test_size)
 
-        with open(image_id_filename, 'wb') as writefile:
-            print(
-                f'Caching ids that exist for image and mask: {len(existing_ids)} / {len(sorted_ids)} {len(existing_ids) / len(sorted_ids) * 100}%')
-            pickle.dump(existing_ids, writefile)
+        X_ids_train, X_ids_valid = train_test_split(
+            ids_remainder, test_size=test_size)
 
-        return sorted_ids
+        id_groups = {
+            'all': sorted_ids,
+            'train': X_ids_train,
+            'valid': X_ids_valid,
+            'remainder': ids_remainder,
+            'test': ids_test
+        }
+
+        for id_group_key, id_group in id_groups.items():
+            image_id_filename = get_segementation_path(
+                csv_file, id_group_key, test_size)
+
+            existing_ids = []
+            for id_ in id_group:
+                image_path = os.path.join(
+                    IMAGE_DIR, f'{image_prefix}{id_}.tif')
+                mask_path = os.path.join(OUTPUT_DIR, f'{id_}_mask.tif')
+                files_exist = (os.path.exists(image_path)
+                               and os.path.exists(mask_path))
+                if files_exist:
+                    existing_ids.append(id_)
+
+            with open(image_id_filename, 'wb') as writefile:
+                print(
+                    f'Caching ids that exist for {id_group_key} image and mask: {len(existing_ids)} / {len(sorted_ids)} {len(existing_ids) / len(sorted_ids) * 100}%')
+                pickle.dump(existing_ids, writefile)
+
+        return get_image_ids(segmentation, train_percentage, test_size, csv_file)
 
 
 def create_data(

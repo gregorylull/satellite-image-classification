@@ -27,21 +27,7 @@ config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
 sess = tf.Session(config=config)
 
-# set float16 https://medium.com/@noel_kennedy/how-to-use-half-precision-float16-when-training-on-rtx-cards-with-tensorflow-keras-d4033d59f9e4
-# note kareas.json is in ~/.keras/
-# dtype = 'float16'
-# K.set_floatx(dtype)
-
-# # default is 1e-7 which is too small for float16.  Without adjusting the epsilon, we will get NaN predictions because of divide by zero problems
-# K.set_epsilon(1e-4)
-
-# defualt is np.float32
-# float16 doesn't work when saving matplotlib images
-dtype_float = np.float32
-# dtype_float = np.float16
-
 USE_CACHED_MODEL = True
-
 
 # train_percentage = 1  # 1
 
@@ -68,7 +54,8 @@ train_percentage = 0.50  # 1
 # train_percentage = 0.25  # 1
 # train_percentage = 0.1  # 1
 # train_percentage = 0.05  # 1
-# train_percentage = 0.001  # 1
+# train_percentage = 0.01  # 1
+# train_percentage = 0.005  # 1
 
 # model
 batch_size = 64  # 32
@@ -77,6 +64,10 @@ n_filters = 16  # 16
 epochs = 50  # 100
 patience = 15  # 20
 float_type = 'float16'
+metrics = ['accuracy']  # ['accuracy']
+metric_params = 'accuracy'  # 'accuracy'
+loss_metrics = 'binary_crossentropy'  # 'binary_crossentropy'
+loss_params = 'binary_crossentropy'  # 'binary_crossentropy'
 
 # model medium
 # batch_size = 32  # 32
@@ -94,15 +85,23 @@ float_type = 'float16'
 # patience = 10  # 20
 # float_type = 'float16'
 
-# path_train = 'data/salt/gltrain/
-path_train = 'data/salt/train/'
 assets = 'assets/spacenet/'
 
 # Get and resize train images and masks
 
-parameters = f'_epochs{epochs}_train{train_percentage}_batch{batch_size}_dropout{dropout}_n_filters{n_filters}_{float_type}'
+parameters = gldata.get_parameters(
+    epochs,
+    train_percentage,
+    batch_size,
+    dropout,
+    n_filters,
+    metric_params,
+    loss_params,
+    float_type,
+)
 CACHED_MODEL_FILENAME = f'models/spacenet{parameters}.h5'
 CACHED_PREDICTION_FILENAME = f'models/spacenet{parameters}_preds.pkl'
+CACHED_EVALUATION_FILENAME = f'models/spacenet{parameters}_evals.pkl'
 
 
 def savefig(fig, name, save=SAVE_FIG):
@@ -113,24 +112,18 @@ def savefig(fig, name, save=SAVE_FIG):
         )
 
 
-ids = gldata.get_image_ids()
+ids = gldata.get_image_ids('all', train_percentage)
+X_ids_train = gldata.get_image_ids('train', train_percentage)
+X_ids_valid = gldata.get_image_ids('valid', train_percentage)
+ids_test = gldata.get_image_ids('test', train_percentage)
+ids_remainder = gldata.get_image_ids('remainder', train_percentage)
 
-if train_percentage != 1:
-    train_index = int((len(ids) * train_percentage) // 1)
-    ids = ids[:train_index]
-
-ids_remainder, ids_test = train_test_split(
-    ids, test_size=0.20)
-
-X_ids_train, X_ids_valid = train_test_split(
-    ids_remainder, test_size=0.20)
-
-USE_X_TRAIN = False
-USE_X_VALID = False
+USE_X_TRAIN = True
+USE_X_VALID = True
 USE_X_TEST = True
 
-
-print(f'\n\nTrain percentage: {len(ids)} {train_percentage * 100}%\n\n')
+print(
+    f'\n\nTrain percentage ({train_percentage * 100}%): {len(ids) // 1} / {len(ids) * (1/train_percentage) // 1} \n\n')
 
 
 def get_tvt(
@@ -253,8 +246,8 @@ def create_model(
     image_channels,
     n_filters,
     dropout,
-    loss='binary_crossentropy',
-    metrics=['accuracy'],
+    metrics=metrics,
+    loss=loss_metrics,
     optimizer=Adam,
     batchnorm=True
 ):
@@ -292,19 +285,39 @@ def train_cache_model(
     if use_cached_model and os.path.exists(cached_model_filename):
         print(f'\n\nUsing cached model: {cached_model_filename}')
         model.load_weights(cached_model_filename)
-        # model.evaluate(X_valid, y_valid, verbose=1)
 
     else:
         print(
             f'\n\nNo cached model found, will save as: {cached_model_filename}')
 
+        # (glull) tutorial and documentation
+        # https://machinelearningmastery.com/how-to-stop-training-deep-neural-networks-at-the-right-time-using-early-stopping/
+        # https://keras.io/callbacks/#modelcheckpoint
+        # custom metric https://stackoverflow.com/questions/43782409/how-to-use-modelcheckpoint-with-custom-metrics-in-keras
         callbacks = [
-            EarlyStopping(patience=patience, verbose=1),
-            ReduceLROnPlateau(factor=0.1, patience=3,
-                              min_lr=0.00001, verbose=1),
-            ModelCheckpoint(cached_model_filename, verbose=1,
-                            save_best_only=True, save_weights_only=True)
+            EarlyStopping(
+                patience=patience,
+                verbose=1
+            ),
+            ReduceLROnPlateau(
+                factor=0.1, patience=3,
+                min_lr=0.00001, verbose=1
+            ),
+            ModelCheckpoint(
+                cached_model_filename, verbose=1,
+                save_best_only=True, save_weights_only=True,
+                monitor='val_loss',
+                mode='min'
+
+            )
         ]
+
+        xy_train_valid = np.array([
+            X_train.shape[0], y_train.shape[0], X_valid.shape[0], y_valid.shape[0]])
+        if not xy_train_valid.all():
+            print(
+                f'\n\nError modeling: X/y_train/valid are empty {xy_train_valid}')
+            exit()
 
         epochs = epochs
         results = model.fit(
@@ -316,7 +329,7 @@ def train_cache_model(
             validation_data=(X_valid, y_valid)
         )
 
-        plt.figure(figsize=(12, 12))
+        plt.figure(figsize=(15, 15))
         plt.title(f"Learning curve {' '.join(parameters.split('_'))}")
         plt.plot(results.history["loss"], label="loss")
         plt.plot(results.history["val_loss"], label="val_loss")
@@ -339,9 +352,6 @@ def get_predictions(model, X_train, X_valid, X_test, cached_prediction_filename=
     if os.path.exists(cached_prediction_filename):
         with open(cached_prediction_filename, 'rb') as readfile:
             preds = pickle.load(readfile)
-            preds_train = preds['train']
-            preds_val = preds['val']
-            preds_test = preds['test']
 
     else:
         preds_train = model.predict(X_train, verbose=1)
@@ -358,11 +368,46 @@ def get_predictions(model, X_train, X_valid, X_test, cached_prediction_filename=
 
     return preds
 
-# Threshold predictions
 
+def get_evaluations(
+    model,
+    X_train,
+    y_train,
+    X_valid,
+    y_valid,
+    X_test,
+    y_test,
+    cached_evaluation_filename=CACHED_EVALUATION_FILENAME
+):
 
-def plot_overlap(X, y, preds, binary_preds, ix=None):
-    pass
+    if os.path.exists(cached_evaluation_filename):
+        with open(cached_evaluation_filename, 'rb') as readfile:
+            print(f'\nUsing cached eval files {cached_evaluation_filename}')
+            evaluations = pickle.load(readfile)
+
+    else:
+        train_eval = model.evaluate(X_train, y_train, verbose=1)
+        print(f'\nTrain eval {X_train.shape} {train_eval}')
+        print('\n')
+
+        valid_eval = model.evaluate(X_valid, y_valid, verbose=1)
+        print(f'\nValid eval {X_valid.shape} {valid_eval}')
+        print('\n')
+
+        test_eval = model.evaluate(X_test, y_test, verbose=1)
+        print(f'\nTest eval {X_test.shape} {test_eval}')
+        print('\n')
+
+        evaluations = {
+            'train': train_eval,
+            'val': valid_eval,
+            'test': test_eval
+        }
+
+        with open(cached_evaluation_filename, 'wb') as writefile:
+            pickle.dump(evaluations, writefile)
+
+    return evaluations
 
 
 def get_predictions_thresholds(preds, preds_threshold=preds_threshold):
@@ -377,7 +422,7 @@ def get_predictions_thresholds(preds, preds_threshold=preds_threshold):
     return preds_train_t, preds_val_t, preds_test_t
 
 
-def plot_sample(X, y, preds, binary_preds, ix=None):
+def plot_sample(model, X, y, preds, binary_preds, evaluations, ix=None):
     start = ix * 25
     end = start + 25
 
@@ -395,8 +440,15 @@ def plot_sample(X, y, preds, binary_preds, ix=None):
     plt.close()
 
     fig, ax = plt.subplots(
-        1, 4, figsize=(40, 20)
+        1, 4, figsize=(40, 10)
     )
+
+    metric_names = model.metrics_names
+    loss_eval = evaluations[0]
+    metric_eval = [
+        f'{metric_name} {metric:0.3}' for metric, metric_name in list(zip(evaluations[1:], metric_names[1:]))]
+    fig.suptitle(
+        f'Satellite with Building Predicted {metric_names[0]}: {loss_eval:0.3f}, metric(s): {", ".join(metric_eval)})')
 
     ax[0].imshow(x_image)
     if has_mask:
@@ -420,6 +472,7 @@ def plot_sample(X, y, preds, binary_preds, ix=None):
 
 
 def output_train_val_test_images(
+    model,
     X_train,
     y_train,
     X_valid,
@@ -427,6 +480,7 @@ def output_train_val_test_images(
     X_test,
     y_test,
     preds,
+    evaluations,
     preds_threshold=preds_threshold,
     split_len=split_len,
     parameters=parameters
@@ -443,54 +497,98 @@ def output_train_val_test_images(
     preds_train_t, preds_val_t, preds_test_t = get_predictions_thresholds(
         preds, preds_threshold)
 
+    train_eval = evaluations['train']
+    val_eval = evaluations['val']
+    test_eval = evaluations['test']
+
     # Check if training data looks all right
     if USE_X_TRAIN:
-        for i in range(min(CHECK_IMAGES, int(y_train.shape[0] / (split_len ** 2)))):
+        train_min = min(CHECK_IMAGES, int(y_train.shape[0] / (split_len ** 2)))
+        print(f'outputing predicted train images {train_min}')
+        for i in tqdm(range(train_min), total=train_min):
             fig_train = plot_sample(
-                X_train, y_train, preds_train, preds_train_t, ix=i)
+                model, X_train, y_train, preds_train, preds_train_t, train_eval, ix=i)
             name = f'{dirpath}/spacenet_train_predicted_fig_{i}_{parameters}.png'
             savefig(fig_train, name)
 
     # Check if validation data looks all right
     if USE_X_VALID:
-        for i in range(min(CHECK_IMAGES, int(y_valid.shape[0] / (split_len ** 2)))):
+        valid_min = min(CHECK_IMAGES, int(y_valid.shape[0] / (split_len ** 2)))
+        print(f'outputing predicted valid images {valid_min}')
+        for i in tqdm(range(valid_min), total=valid_min):
             fig_val = plot_sample(
-                X_valid, y_valid, preds_val, preds_val_t, ix=i)
+                model, X_valid, y_valid, preds_val, preds_val_t, val_eval, ix=i)
             name = f'{dirpath}/spacenet_val_predicted_fig_{i}_{parameters}.png'
             savefig(fig_val, name)
 
     # Check tests
     if USE_X_TEST:
-        for i in range(min(CHECK_IMAGES, int(y_test.shape[0] / (split_len ** 2)))):
+        test_min = min(CHECK_IMAGES, int(y_test.shape[0] / (split_len ** 2)))
+        print(f'outputing predicted test images {test_min}')
+        for i in tqdm(range(test_min), total=test_min):
             fig_val = plot_sample(
-                X_test, y_test, preds_test, preds_test_t, ix=i)
+                model, X_test, y_test, preds_test, preds_test_t, test_eval, ix=i)
             name = f'{dirpath}/spacenet_test_predicted_fig_{i}_{parameters}.png'
             savefig(fig_val, name)
 
 
-def main_fast():
+def main_fast(X_train, y_train, X_valid, y_valid, X_test, y_test, train_percentage):
 
-    batch_size = 16  # 32
+    total_time_start = time.time()
+
+    # single
+    batch_size = 64  # 32
     dropout = 0.1  # 0.1
-    n_filters = 8  # 16
-    epochs = 30  # 100
-    patience = 10  # 20
+    n_filters = 16  # 16
+    epochs = 35  # 100
+    patience = 15  # 20
     float_type = 'float16'
 
+    # super fast
+    # batch_size = 128  # 32
+    # dropout = 0.1  # 0.1
+    # n_filters = 4  # 16
+    # epochs = 15  # 100
+    # patience = 5  # 20
+    # float_type = 'float16'
+
+    # metrics
+    metrics = ['accuracy']  # ['accuracy']
+    metric_params = 'accuracy'  # 'accuracy'
+    loss_metrics = 'binary_crossentropy'  # 'binary_crossentropy'
+    loss_params = 'binary_crossentropy'  # 'binary_crossentropy'
+
+    # alternate metrics
+    metrics = ['accuracy', glunet.iou_coef,
+               glunet.dice_coef_smooth]  # ['accuracy']
+    metric_params = 'accuracy-iou-dice-smooth'  # 'accuracy'
+    loss_metrics = glunet.iou_coef_loss  # 'binary_crossentropy'
+    loss_params = 'iou-coef-loss'  # 'binary_crossentropy'
+
+    # begin training
     model_params = []
 
     read_files_start = time.time()
-
-    X_train, y_train, X_valid, y_valid, X_test, y_test = get_tvt(
-        X_ids_train, X_ids_valid, ids_test, float_type)
 
     read_files_end = time.time() - read_files_start
 
     train_model_start = time.time()
 
-    parameters = f'_epochs{epochs}_train{train_percentage}_batch{batch_size}_dropout{dropout}_n_filters{n_filters}_{float_type}'
+    parameters = gldata.get_parameters(
+        epochs,
+        train_percentage,
+        batch_size,
+        dropout,
+        n_filters,
+        metric_params,
+        loss_params,
+        float_type,
+    )
     CACHED_MODEL_FILENAME = f'models/spacenet{parameters}.h5'
     CACHED_PREDICTION_FILENAME = f'models/spacenet{parameters}_preds.pkl'
+    CACHED_EVALUATION_FILENAME = f'models/spacenet{parameters}_evals.pkl'
+
+    print(f'\n\nparameters:\n{parameters}\n\n')
 
     # check_input_images(X_train, y_train, parameters)
 
@@ -499,6 +597,8 @@ def main_fast():
         image_channels,
         n_filters,
         dropout,
+        metrics,
+        loss_metrics
     )
 
     model = train_cache_model(
@@ -527,7 +627,19 @@ def main_fast():
         CACHED_PREDICTION_FILENAME
     )
 
+    evaluations = get_evaluations(
+        model,
+        X_train,
+        y_train,
+        X_valid,
+        y_valid,
+        X_test,
+        y_test,
+        CACHED_EVALUATION_FILENAME
+    )
+
     output_train_val_test_images(
+        model,
         X_train,
         y_train,
         X_valid,
@@ -535,6 +647,7 @@ def main_fast():
         X_test,
         y_test,
         preds,
+        evaluations,
         preds_threshold,
         split_len,
         parameters
@@ -542,16 +655,16 @@ def main_fast():
 
     predict_output_image_end = time.time() - predict_output_image_start
 
-    total_per = (read_files_end + train_model_end +
-                 predict_output_image_end) // 60
-    prefix = f'minutes; Total_per: {total_per}, Read: {read_files_end // 60 }, train: {train_model_end // 60}, predict/output: {predict_output_image_end // 60}'
+    total_time_end = time.time() - total_time_start
 
-    print(f'\n\nparameters:\n{parameters}\n\n')
+    prefix = f'minutes;  Read: {read_files_end // 60 }, train: {train_model_end // 60}, predict/output: {predict_output_image_end // 60}'
+
+    print(f'\n\nparameters:\n{parameters}\n')
 
     model_params.append(
-        (total_per, prefix, CACHED_PREDICTION_FILENAME))
+        (total_time_end // 60, prefix, CACHED_PREDICTION_FILENAME))
 
-    return model_params
+    return model, model_params, preds, evaluations
 
 
 def main_grid():
@@ -575,9 +688,19 @@ def main_grid():
 
                     train_model_start = time.time()
 
-                    parameters = f'_epochs{epochs}_train{train_percentage}_batch{batch_size}_dropout{dropout}_n_filters{n_filters}_{float_type}'
+                    parameters = gldata.get_parameters(
+                        epochs,
+                        train_percentage,
+                        batch_size,
+                        dropout,
+                        n_filters,
+                        metric_params,
+                        loss_params,
+                        float_type,
+                    )
                     CACHED_MODEL_FILENAME = f'models/spacenet{parameters}.h5'
                     CACHED_PREDICTION_FILENAME = f'models/spacenet{parameters}_preds.pkl'
+                    CACHED_EVALUATION_FILENAME = f'models/spacenet{parameters}_evals.pkl'
 
                     # check_input_images(X_train, y_train, parameters)
 
@@ -614,7 +737,19 @@ def main_grid():
                         CACHED_PREDICTION_FILENAME
                     )
 
+                    evaluations = get_evaluations(
+                        model,
+                        X_train,
+                        y_train,
+                        X_valid,
+                        y_valid,
+                        X_test,
+                        y_test,
+                        CACHED_EVALUATION_FILENAME
+                    )
+
                     output_train_val_test_images(
+                        model,
                         X_train,
                         y_train,
                         X_valid,
@@ -622,6 +757,7 @@ def main_grid():
                         X_test,
                         y_test,
                         preds,
+                        evaluations,
                         preds_threshold,
                         split_len,
                         parameters
@@ -644,6 +780,9 @@ def main_grid():
 
 
 if __name__ == '__main__':
-    model_params = main_grid()
-    # model_params = main_fast()
+    X_train, y_train, X_valid, y_valid, X_test, y_test = get_tvt(
+        X_ids_train, X_ids_valid, ids_test, float_type)
+
+    model, model_params, preds, evaluations = main_fast(
+        X_train, y_train, X_valid, y_valid, X_test, y_test, train_percentage)
     print('\n\n\nParameters:\n', model_params)
