@@ -7,11 +7,13 @@ from tqdm import tqdm_notebook, tnrange, tqdm
 from skimage.io import imread, imshow, concatenate_images, imsave
 from skimage.transform import resize
 from skimage.morphology import label
+from skimage.color import rgb2gray
 from sklearn.model_selection import train_test_split
 from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 import pickle
 
 from PIL import Image
+import re
 
 # data/xview2/xview2_tier3/xBD/joplin-tornado/
 
@@ -120,7 +122,9 @@ def get_image_ids(segmentation='all', train_percentage=1.0, test_size=0.2, AOI='
 
         image_paths = glob.glob(image_path_globs)
 
-        imageids = [image_path.split('/')[-1] for image_path in image_paths]
+        # 'path/to/some_image_0000.png' --> 'some_image_0000'
+        imageids = [re.sub(ext, '', image_path.split('/')[-1])
+                    for image_path in image_paths]
 
         sorted_ids = sorted(imageids)
 
@@ -192,15 +196,15 @@ def create_data(
             continue
 
         # Load images
-        x_img_obj = Image.open(img_path)
-        x_img = np.array(img_obj)
+        x_img_obj = Image.open(image_path)
+        x_img = np.array(x_img_obj)
 
         x_img = x_img.squeeze() / RGB_bits
         x_img = x_img.astype(float_type)
 
         # Load masks
         mask_img_obj = Image.open(mask_path)
-        mask = np.array(mask_img_obj)
+        y_mask = np.array(mask_img_obj)
 
         y_mask = y_mask / mask_bits
         y_mask = y_mask.astype(float_type)
@@ -215,13 +219,13 @@ def create_data(
             part = 'part_' + str(index).zfill(2)
             image_save_path = os.path.join(
                 preprocessed_image_dir, f'{id_}_{part}{ext}')
-            Image.save(image_save_path, x_split_image)
+            imsave(image_save_path, x_split_image)
 
         for index, y_split_image in enumerate(y_split_images):
             part = 'part_' + str(index).zfill(2)
             mask_save_path = os.path.join(
                 preprocessed_MASK_DIR, f'{id_}_{part}{ext}')
-            Image.save(mask_save_path, y_split_image)
+            imsave(mask_save_path, y_split_image)
 
 
 def split_image(image, image_dimension, split_dimension, split_len):
@@ -300,32 +304,18 @@ def get_data(
 
     dtype_float = np.float16
 
-    if use_preprocessed:
-        split_len = int(image_dimension // split_dimension)
-        print(f'Using preprocessed {postfix} images')
-        image_dir = preprocessed_image_dir
-        output_dir = preprocessed_output_dir
-        total_ids = len(ids) * (split_len * split_len)
-        X = np.zeros((total_ids, split_dimension, split_dimension,
-                      image_channels), dtype=dtype_float)
-        y = np.zeros((total_ids, split_dimension, split_dimension,
-                      mask_channels), dtype=dtype_float)
+    split_len = int(image_dimension // split_dimension)
+    print(f'Using preprocessed {postfix} images')
+    image_dir = preprocessed_image_dir
+    output_dir = preprocessed_MASK_DIR
+    total_ids = len(ids) * (split_len * split_len)
+    X = np.zeros((total_ids, split_dimension, split_dimension,
+                  image_channels), dtype=dtype_float)
+    y = np.zeros((total_ids, split_dimension, split_dimension,
+                  mask_channels), dtype=dtype_float)
 
-        print(
-            f'\nExamining images (use preprocess) {total_ids}')
-
-    else:
-        image_dir = IMAGE_DIR
-        output_dir = OUTPUT_DIR
-
-        # (650, 650) does not play well with pooling and upsampling concat
-        image_dimension = 512
-        X = np.zeros((len(ids), image_dimension, image_dimension,
-                      image_channels), dtype=dtype_float)
-        y = np.zeros((len(ids), image_dimension, image_dimension,
-                      mask_channels), dtype=dtype_float)
-        print(
-            f'\nExamining images {len(ids)}')
+    print(
+        f'\nExamining images (use preprocess) {total_ids}')
 
     for n, id_ in tqdm(enumerate(ids), total=len(ids)):
 
@@ -348,14 +338,17 @@ def get_data(
         for image_count, image_path in enumerate(image_paths_glob):
             # Load images
             x_img_obj = Image.open(image_path)
-            x_img = np.array(x_img_obj)
+            x_img = np.array(x_img_obj) / 255
             X[start + image_count] = x_img
 
         for mask_count, mask_path in enumerate(mask_paths_glob):
             y_mask_obj = Image.open(mask_path)
             y_mask = np.array(y_mask_obj)
+            y_mask_gray = rgb2gray(y_mask)
+            mask = resize(y_mask_gray, (128, 128, 1),
+                          mode='constant', preserve_range=True)
 
-            y[start + mask_count] = y_mask
+            y[start + mask_count] = mask
 
     print('\nDone getting images!')
     return X, y

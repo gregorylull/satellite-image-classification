@@ -41,18 +41,19 @@ SAVE_FIG = True
 # Set some parameters
 # image_dimension = 650 # original shape
 split_dimension = 128
-image_dimension = 640  # resized dimension
+image_dimension = 1024  # resized dimension
 split_len = int(image_dimension // split_dimension)
+square_dim = split_len * split_len
 image_channels = 3
 mask_channels = 1
-RGB_bits = 2047  # RGB images
+RGB_bits = 255  # RGB images
 mask_bits = 255  # grayscale
 
-# train_percentage = 1  # 1
+train_percentage = 1  # 1
 # train_percentage = 0.75  # 1
-train_percentage = 0.5  # 1
+# train_percentage = 0.5  # 1
 # train_percentage = 0.25  # 1
-# train_percentage = 0.1  # 1
+# train_percentage = 0.5  # 1
 # train_percentage = 0.05  # 1
 # train_percentage = 0.01  # 1
 # train_percentage = 0.005  # 1
@@ -61,13 +62,13 @@ train_percentage = 0.5  # 1
 batch_size = 64  # 32
 dropout = 0.1  # 0.1
 n_filters = 16  # 16
-epochs = 50  # 100
+epochs = 80  # 100
 patience = 15  # 20
 float_type = 'float16'
-metrics = ['accuracy']  # ['accuracy']
-metric_params = 'accuracy'  # 'accuracy'
-loss_metrics = 'binary_crossentropy'  # 'binary_crossentropy'
-loss_params = 'binary_crossentropy'  # 'binary_crossentropy'
+# metrics = ['accuracy']  # ['accuracy']
+# metric_params = 'accuracy'  # 'accuracy'
+# loss_metrics = 'binary_crossentropy'  # 'binary_crossentropy'
+# loss_params = 'binary_crossentropy'  # 'binary_crossentropy'
 
 # model medium
 # batch_size = 32  # 32
@@ -89,19 +90,19 @@ assets = 'assets/xview2/'
 
 # Get and resize train images and masks
 
-parameters = gldata.get_parameters(
-    epochs,
-    train_percentage,
-    batch_size,
-    dropout,
-    n_filters,
-    metric_params,
-    loss_params,
-    float_type,
-)
-CACHED_MODEL_FILENAME = f'models/xview2{parameters}.h5'
-CACHED_PREDICTION_FILENAME = f'models/xview2{parameters}_preds.pkl'
-CACHED_EVALUATION_FILENAME = f'models/xview2{parameters}_evals.pkl'
+# parameters = gldata.get_parameters(
+#     epochs,
+#     train_percentage,
+#     batch_size,
+#     dropout,
+#     n_filters,
+#     metric_params,
+#     loss_params,
+#     float_type,
+# )
+# CACHED_MODEL_FILENAME = f'models/xview2{parameters}.h5'
+# CACHED_PREDICTION_FILENAME = f'models/xview2{parameters}_preds.pkl'
+# CACHED_EVALUATION_FILENAME = f'models/xview2{parameters}_evals.pkl'
 
 
 def savefig(fig, name, save=SAVE_FIG):
@@ -123,9 +124,9 @@ USE_X_VALID = True
 USE_X_TEST = True
 
 #
-# USE_X_TRAIN = False
-# USE_X_VALID = False
-# USE_X_TEST = True
+USE_X_TRAIN = False
+USE_X_VALID = False
+USE_X_TEST = True
 
 print(
     f'\n\nTrain percentage ({train_percentage * 100}%): {len(ids) // 1} / {len(ids) * (1/train_percentage) // 1} \n\n')
@@ -187,8 +188,8 @@ def check_input_images(X_train, y_train, parameters):
     for ix in range(5):
         id_without_ext = X_ids_train[ix].split('.')[0]
 
-        start = ix * 25
-        end = start + 25
+        start = ix * square_dim
+        end = start + square_dim
 
         x_image = gldata.stich_images(X_train[start:end]).astype(np.float32)
         y_image = gldata.stich_images(y_train[start:end]).astype(np.float32)
@@ -251,8 +252,8 @@ def create_model(
     image_channels,
     n_filters,
     dropout,
-    metrics=metrics,
-    loss=loss_metrics,
+    metrics,
+    loss,
     optimizer=Adam,
     batchnorm=True
 ):
@@ -280,12 +281,12 @@ def train_cache_model(
     y_train,
     X_valid,
     y_valid,
-    patience=patience,
-    batch_size=batch_size,
-    epochs=epochs,
-    use_cached_model=USE_CACHED_MODEL,
-    cached_model_filename=CACHED_MODEL_FILENAME,
-    parameters=parameters
+    patience,
+    batch_size,
+    epochs,
+    use_cached_model,
+    cached_model_filename,
+    parameters
 ):
     if use_cached_model and os.path.exists(cached_model_filename):
         print(f'\n\nUsing cached model: {cached_model_filename}')
@@ -353,7 +354,7 @@ def train_cache_model(
 # Predict on train, val and test
 
 
-def get_predictions(model, X_train, X_valid, X_test, cached_prediction_filename=CACHED_PREDICTION_FILENAME):
+def get_predictions(model, X_train, X_valid, X_test, cached_prediction_filename):
 
     if os.path.exists(cached_prediction_filename):
         try:
@@ -366,9 +367,19 @@ def get_predictions(model, X_train, X_valid, X_test, cached_prediction_filename=
             print('Error opening cached prediction file\n',
                   cached_prediction_filename)
 
-    preds_train = model.predict(X_train, verbose=1)
-    preds_val = model.predict(X_valid, verbose=1)
-    preds_test = model.predict(X_test, verbose=1)
+    preds_train = []
+    preds_val = []
+    preds_test = []
+
+    if USE_X_TRAIN:
+        preds_train = model.predict(X_train, verbose=1)
+
+    if USE_X_VALID:
+        preds_val = model.predict(X_valid, verbose=1)
+
+    if USE_X_TEST:
+        preds_test = model.predict(X_test, verbose=1)
+
     preds = {
         'train': preds_train,
         'val': preds_val,
@@ -393,7 +404,7 @@ def get_evaluations(
     y_valid,
     X_test,
     y_test,
-    cached_evaluation_filename=CACHED_EVALUATION_FILENAME
+    cached_evaluation_filename
 ):
 
     if os.path.exists(cached_evaluation_filename):
@@ -439,8 +450,8 @@ def get_predictions_thresholds(preds, preds_threshold=preds_threshold):
 
 
 def plot_sample(model, X, y, preds, binary_preds, evaluations, ix=None):
-    start = ix * 25
-    end = start + 25
+    start = ix * square_dim
+    end = start + square_dim
 
     x_image = gldata.stich_images(X[start:end]).astype(np.float32)
 
@@ -497,9 +508,9 @@ def output_train_val_test_images(
     y_test,
     preds,
     evaluations,
-    preds_threshold=preds_threshold,
-    split_len=split_len,
-    parameters=parameters
+    preds_threshold,
+    split_len,
+    parameters,
 ):
 
     dirpath = os.path.join(assets, parameters)
@@ -524,7 +535,8 @@ def output_train_val_test_images(
         for i in tqdm(range(train_min), total=train_min):
             fig_train = plot_sample(
                 model, X_train, y_train, preds_train, preds_train_t, train_eval, ix=i)
-            name = f'{dirpath}/xview2_train_predicted_fig_{i}_{parameters}.png'
+            figure_id = X_ids_train[i]
+            name = f'{dirpath}/xview2_train_predicted_fig_{i}_{figure_id}.png'
             savefig(fig_train, name)
 
     # Check if validation data looks all right
@@ -534,18 +546,22 @@ def output_train_val_test_images(
         for i in tqdm(range(valid_min), total=valid_min):
             fig_val = plot_sample(
                 model, X_valid, y_valid, preds_val, preds_val_t, val_eval, ix=i)
-            name = f'{dirpath}/xview2_val_predicted_fig_{i}_{parameters}.png'
+            figure_id = X_ids_valid[i]
+            name = f'{dirpath}/xview2_val_predicted_fig_{i}_{figure_id}.png'
             savefig(fig_val, name)
 
     # Check tests
     if USE_X_TEST:
-        test_min = min(CHECK_IMAGES, int(y_test.shape[0] / (split_len ** 2)))
+        test_min = int(y_test.shape[0] / square_dim)
         print(f'outputing predicted test images {test_min}')
         for i in tqdm(range(test_min), total=test_min):
             fig_val = plot_sample(
                 model, X_test, y_test, preds_test, preds_test_t, test_eval, ix=i)
-            name = f'{dirpath}/xview2_test_predicted_fig_{i}_{parameters}.png'
+            figure_id = ids_test[i]
+            name = f'{dirpath}/xview2_test_predicted_fig_{i}_{figure_id}.png'
             savefig(fig_val, name)
+
+    print('Finishing output')
 
 
 def main_fast(X_train, y_train, X_valid, y_valid, X_test, y_test, train_percentage):
@@ -554,25 +570,25 @@ def main_fast(X_train, y_train, X_valid, y_valid, X_test, y_test, train_percenta
 
     # single
     batch_size = 64  # 32
-    dropout = 0.5  # 0.1
+    dropout = 0.1  # 0.1
     n_filters = 16  # 16
     epochs = 80  # 100
     patience = 15  # 20
     float_type = 'float16'
 
     # super fast
-    # batch_size = 128  # 32
+    # batch_size = 64  # 32
     # dropout = 0.1  # 0.1
     # n_filters = 4  # 16
-    # epochs = 15  # 100
+    # epochs = 20  # 100
     # patience = 5  # 20
     # float_type = 'float16'
 
     # metrics
-    metrics = ['accuracy']  # ['accuracy']
-    metric_params = 'accuracy'  # 'accuracy'
-    loss_metrics = 'binary_crossentropy'  # 'binary_crossentropy'
-    loss_params = 'binary_crossentropy'  # 'binary_crossentropy'
+    # metrics = ['accuracy']  # ['accuracy']
+    # metric_params = 'accuracy'  # 'accuracy'
+    # loss_metrics = 'binary_crossentropy'  # 'binary_crossentropy'
+    # loss_params = 'binary_crossentropy'  # 'binary_crossentropy'
 
     # alternate metrics
     metrics = ['accuracy', glunet.iou_coef,
@@ -600,9 +616,9 @@ def main_fast(X_train, y_train, X_valid, y_valid, X_test, y_test, train_percenta
         loss_params,
         float_type,
     )
-    CACHED_MODEL_FILENAME = f'models/xview2{parameters}.h5'
-    CACHED_PREDICTION_FILENAME = f'models/xview2{parameters}_preds.pkl'
-    CACHED_EVALUATION_FILENAME = f'models/xview2{parameters}_evals.pkl'
+    CACHED_MODEL_FILENAME = f'models_xview2/xview2{parameters}.h5'
+    CACHED_PREDICTION_FILENAME = f'models_xview2/xview2{parameters}_preds.pkl'
+    CACHED_EVALUATION_FILENAME = f'models_xview2/xview2{parameters}_evals.pkl'
 
     print(f'\n\nparameters:\n{parameters}\n\n')
 
