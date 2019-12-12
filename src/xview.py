@@ -19,7 +19,7 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.optimizers import Adam
 
 # glull files
-from src.utilities import data as gldata
+from src.utilities import data_xview as gldata
 from src.utilities import unet as glunet
 
 # https://stackoverflow.com/questions/55350010/ive-installed-cudnn-but-error-failed-to-get-convolution-algorithm-shows-up
@@ -85,7 +85,7 @@ loss_params = 'binary_crossentropy'  # 'binary_crossentropy'
 # patience = 10  # 20
 # float_type = 'float16'
 
-assets = 'assets/spacenet/'
+assets = 'assets/xview2/'
 
 # Get and resize train images and masks
 
@@ -99,9 +99,9 @@ parameters = gldata.get_parameters(
     loss_params,
     float_type,
 )
-CACHED_MODEL_FILENAME = f'models/spacenet{parameters}.h5'
-CACHED_PREDICTION_FILENAME = f'models/spacenet{parameters}_preds.pkl'
-CACHED_EVALUATION_FILENAME = f'models/spacenet{parameters}_evals.pkl'
+CACHED_MODEL_FILENAME = f'models/xview2{parameters}.h5'
+CACHED_PREDICTION_FILENAME = f'models/xview2{parameters}_preds.pkl'
+CACHED_EVALUATION_FILENAME = f'models/xview2{parameters}_evals.pkl'
 
 
 def savefig(fig, name, save=SAVE_FIG):
@@ -123,9 +123,9 @@ USE_X_VALID = True
 USE_X_TEST = True
 
 #
-USE_X_TRAIN = False
-USE_X_VALID = False
-USE_X_TEST = True
+# USE_X_TRAIN = False
+# USE_X_VALID = False
+# USE_X_TEST = True
 
 print(
     f'\n\nTrain percentage ({train_percentage * 100}%): {len(ids) // 1} / {len(ids) * (1/train_percentage) // 1} \n\n')
@@ -364,7 +364,7 @@ def get_predictions(model, X_train, X_valid, X_test, cached_prediction_filename=
                 return preds
         except:
             print('Error opening cached prediction file\n',
-                  cached_predition_filename)
+                  cached_prediction_filename)
 
     preds_train = model.predict(X_train, verbose=1)
     preds_val = model.predict(X_valid, verbose=1)
@@ -524,7 +524,7 @@ def output_train_val_test_images(
         for i in tqdm(range(train_min), total=train_min):
             fig_train = plot_sample(
                 model, X_train, y_train, preds_train, preds_train_t, train_eval, ix=i)
-            name = f'{dirpath}/spacenet_train_predicted_fig_{i}_{parameters}.png'
+            name = f'{dirpath}/xview2_train_predicted_fig_{i}_{parameters}.png'
             savefig(fig_train, name)
 
     # Check if validation data looks all right
@@ -534,7 +534,7 @@ def output_train_val_test_images(
         for i in tqdm(range(valid_min), total=valid_min):
             fig_val = plot_sample(
                 model, X_valid, y_valid, preds_val, preds_val_t, val_eval, ix=i)
-            name = f'{dirpath}/spacenet_val_predicted_fig_{i}_{parameters}.png'
+            name = f'{dirpath}/xview2_val_predicted_fig_{i}_{parameters}.png'
             savefig(fig_val, name)
 
     # Check tests
@@ -544,7 +544,7 @@ def output_train_val_test_images(
         for i in tqdm(range(test_min), total=test_min):
             fig_val = plot_sample(
                 model, X_test, y_test, preds_test, preds_test_t, test_eval, ix=i)
-            name = f'{dirpath}/spacenet_test_predicted_fig_{i}_{parameters}.png'
+            name = f'{dirpath}/xview2_test_predicted_fig_{i}_{parameters}.png'
             savefig(fig_val, name)
 
 
@@ -600,9 +600,9 @@ def main_fast(X_train, y_train, X_valid, y_valid, X_test, y_test, train_percenta
         loss_params,
         float_type,
     )
-    CACHED_MODEL_FILENAME = f'models/spacenet{parameters}.h5'
-    CACHED_PREDICTION_FILENAME = f'models/spacenet{parameters}_preds.pkl'
-    CACHED_EVALUATION_FILENAME = f'models/spacenet{parameters}_evals.pkl'
+    CACHED_MODEL_FILENAME = f'models/xview2{parameters}.h5'
+    CACHED_PREDICTION_FILENAME = f'models/xview2{parameters}_preds.pkl'
+    CACHED_EVALUATION_FILENAME = f'models/xview2{parameters}_evals.pkl'
 
     print(f'\n\nparameters:\n{parameters}\n\n')
 
@@ -683,122 +683,11 @@ def main_fast(X_train, y_train, X_valid, y_valid, X_test, y_test, train_percenta
     return model, model_params, preds, evaluations
 
 
-def main_grid():
-
-    model_params = []
-
-    for float_type in ['float16']:
-
-        read_files_start = time.time()
-
-        X_train, y_train, X_valid, y_valid, X_test, y_test = get_tvt(
-            X_ids_train, X_ids_valid, ids_test, float_type)
-
-        read_files_end = time.time() - read_files_start
-
-        for dropout in tqdm([0.1], total=3):
-
-            for n_filters in [16]:
-
-                for batch_size in [64]:
-
-                    train_model_start = time.time()
-
-                    parameters = gldata.get_parameters(
-                        epochs,
-                        train_percentage,
-                        batch_size,
-                        dropout,
-                        n_filters,
-                        metric_params,
-                        loss_params,
-                        float_type,
-                    )
-                    CACHED_MODEL_FILENAME = f'models/spacenet{parameters}.h5'
-                    CACHED_PREDICTION_FILENAME = f'models/spacenet{parameters}_preds.pkl'
-                    CACHED_EVALUATION_FILENAME = f'models/spacenet{parameters}_evals.pkl'
-
-                    # check_input_images(X_train, y_train, parameters)
-
-                    model = create_model(
-                        split_dimension,
-                        image_channels,
-                        n_filters,
-                        dropout,
-                    )
-
-                    model = train_cache_model(
-                        model,
-                        X_train,
-                        y_train,
-                        X_valid,
-                        y_valid,
-                        patience,
-                        batch_size,
-                        epochs,
-                        USE_CACHED_MODEL,
-                        CACHED_MODEL_FILENAME,
-                        parameters
-                    )
-
-                    train_model_end = time.time() - train_model_start
-
-                    predict_output_image_start = time.time()
-
-                    preds = get_predictions(
-                        model,
-                        X_train,
-                        X_valid,
-                        X_test,
-                        CACHED_PREDICTION_FILENAME
-                    )
-
-                    evaluations = get_evaluations(
-                        model,
-                        X_train,
-                        y_train,
-                        X_valid,
-                        y_valid,
-                        X_test,
-                        y_test,
-                        CACHED_EVALUATION_FILENAME
-                    )
-
-                    output_train_val_test_images(
-                        model,
-                        X_train,
-                        y_train,
-                        X_valid,
-                        y_valid,
-                        X_test,
-                        y_test,
-                        preds,
-                        evaluations,
-                        preds_threshold,
-                        split_len,
-                        parameters
-                    )
-
-                    predict_output_image_end = time.time() - predict_output_image_start
-
-                    total_per = (read_files_end + train_model_end +
-                                 predict_output_image_end) // 60
-                    prefix = f'minutes; Total_per: {total_per}, Read: {read_files_end // 60 }, train: {train_model_end // 60}, predict/output: {predict_output_image_end // 60}'
-
-                    print(f'\n\nparameters:\n{parameters}\n\n')
-
-                    combo = (total_per, prefix, CACHED_PREDICTION_FILENAME)
-                    model_params.append(combo)
-
-                    print(model_params)
-
-    return model_params
-
-
 if __name__ == '__main__':
     X_train, y_train, X_valid, y_valid, X_test, y_test = get_tvt(
         X_ids_train, X_ids_valid, ids_test, float_type)
 
     model, model_params, preds, evaluations = main_fast(
         X_train, y_train, X_valid, y_valid, X_test, y_test, train_percentage)
+
     print('\n\n\nParameters:\n', model_params)
